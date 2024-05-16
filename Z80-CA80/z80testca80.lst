@@ -1,0 +1,622 @@
+0000-                 24               .sf Z80testCA80.sym
+0000-                 25       ;        .in ca80.inc
+0000-                 26       ;*********************************************************************
+0000-                 27               .sm code           ;
+C000-                 28               .or $C000          ; RAM IN ALL OF CA80
+C000-                 29       ;**************************************************************************
+00E4-                 30       DATA_8251    .EQ 0E4H    ;Data register 8251A                             *
+00E5-                 31       CONTR_8251   .EQ 0E5H    ;Control register 8251A                          *
+00E3-                 32       CONTR_8255   .EQ 0E3H    ;Control register 8255                           *
+C000-                 33       ;**************************************************************************
+C000-                 34
+C000-                 35       ;BDOS   EQU     5
+C000-                 36       ;WRCHR  EQU     2
+C000-                 37       ;WRSTR  EQU     9
+C000-                 38       ; SIO CHANNEL B COMMAND PORT - RC2014/SC DEFAULT
+C000-                 39       ;
+C000-                 40       ; Costants definitions
+C000-                 41       ;
+0000-                 42       eos             .equ    $00             ; End of string
+000D-                 43       cr              .equ    $0d             ; Carriage return
+000A-                 44       lf              .equ    $0a             ; Line feed
+0020-                 45       space           .equ    $20             ; Space
+00E0-                 46       SIOBC           .EQ     0E0H            ; PA2 (Intel 8255) CA80
+C000-                 47       ;
+C000-                 48       ;
+C000-CD 55 C2         49 ( 17)                 CALL    INIT_8255       ; PA INSTEAD SIOBC
+C003-CD 5A C2         50 ( 17)                 CALL    INIT_8251       ; UART INSTEAD BDOS
+C006-CD 7A C2         51 ( 17)                 CALL    INIT_BUFFER     ; CIRCULAR BUFFER FOR UART
+C009-                 52
+C009-                 53       ;       ORG     0100H
+C009-                 54
+C009-11 24 C1         55 ( 10)         LD      DE,MSGSIGNIN
+C00C-                 56       ;       MVI     C,WRSTR
+C00C-CD 2B C2         57 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C00F-                 58
+C00F-                 59       ; CHECK FOR U880
+C00F-                 60
+C00F-21 FF FF         61 ( 10)         LD      HL,0FFFFH
+C012-01 E0 01         62 ( 10)         LD      BC,00100H+SIOBC ; USE SIO CHANNEL B COMMAND PORT FOR TESTS
+C015-                 63
+C015-                 64               ; DI
+C015-                 65               ; MVI   A,02H           ; SET SIO CHANNEL B REGISTER POINTER
+C015-                 66               ;                       ; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+C015-                 67               ; OUT   SIOBC
+C015-                 68               ;IN     A,(SIOBC)               ; READ THE CURRENT INTERRUPT VECTOR
+C015-37               69 (  4)         SCF
+C016-ED A3            70               .DB     0EDH,0A3H       ; Z80 OUTI INSTRUCTION
+C018-                 71               ;PUSH   AF              ; SAVE THE ORIGINAL VECTOR ON THE STACK
+C018-                 72               ; MVI   A,02H           ; SET SIO CHANNEL B REGISTER POINTER
+C018-                 73               ;                       ; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+C018-                 74               ;OUT    (SIOBC),A
+C018-                 75               ;POP    AF              ; RESTORE THE ORIGINAL INTERRUPT VECTOR
+C018-                 76               ;OUT    (SIOBC),A               ; WRITE IT TO THE SIO
+C018-                 77               ; EI
+C018-30 0D            78 ( 7+)         JR  NC,Z80
+C01A-                 79
+C01A-                 80       ; U880 DETECTED
+C01A-                 81
+C01A-21 23 C1         82 ( 10)         LD      HL,ISMME
+C01D-36 01            83 ( 10)         LD      (HL),1          ; SET MANUFACTURER MME FLAG
+C01F-11 A6 C1         84 ( 10)         LD      DE,MSGU880
+C022-                 85               ;MVI    C,WRSTR
+C022-CD 2B C2         86 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C025-18 06            87 ( 12)         JR      CHKCMOS
+C027-                 88
+C027-                 89       Z80:
+C027-11 AD C1         90 ( 10)         LD      DE,MSGZ80
+C02A-                 91               ;MVI    C,WRSTR
+C02A-CD 2B C2         92 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C02D-                 93
+C02D-                 94       CHKCMOS:
+C02D-11 6D C1         95 ( 10)         LD      DE,MSGFAMILY
+C030-                 96               ;MVI    C,WRSTR
+C030-CD 2B C2         97 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C033-                 98       ; NMOS/CMOS CPU DETECTION ALGORITHM:
+C033-                 99       ; 1. DISABLE INTERRUPTS
+C033-                100       ; 2. READ AND SAVE SIO CHANNEL B INTERRUPT VECTOR
+C033-                101       ; 3. MODIFY SIO CHANNEL B INTERRUPT VECTOR USING OUT (C),<0|0FFH>
+C033-                102       ;    (DB 0EDH, 071H) UNDOCMENTED INSTRUCTION:
+C033-                103       ;      ON AN NMOS CPU: OUT (C),0
+C033-                104       ;      ON A CMOS CPU: OUT (C),0FFH
+C033-                105       ; 4. READ AND SAVE SIO CHANNEL B INTERRUPT VECTOR
+C033-                106       ; 5. RESTORE SIO CHANNEL B INTERRUPT VECTOR
+C033-                107       ; 6. SET SIO REGISTER POINTER TO 0
+C033-                108       ; 7. ENABLE INTERRUPTS
+C033-                109       ; 8. CHECK THE VALUE READ BACK IN STEP 4
+C033-                110       ;      0 - NMOS CPU
+C033-                111       ;      0FFH - CMOS CPU
+C033-                112               ; DI
+C033-                113               ; MVI   A,02H           ; SET SIO CHANNEL B REGISTER POINTER
+C033-                114               ;                       ; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+C033-                115               ; OUT   SIOBC
+C033-                116               ; IN    A,(SIOBC)               ; READ THE CURRENT INTERRUPT VECTOR
+C033-                117               ; LD    B,A             ; SAVE THE ORIGINAL VECTOR TO REGISTER B
+C033-0E E0           118 (  7)         LD      C,SIOBC
+C035-ED 71           119               .DB     0EDH, 071H      ; UNDOCUMENTED OUT (C),<0|0FFH> INSTRUCTION
+C037-                120                                       ; WRITE 0 OR FF TO THE SIO INTERRUPT VECTOR
+C037-                121               ; MVI   A,02H           ; SET SIO CHANNEL B REGISTER POINTER
+C037-                122               ;                       ; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+C037-                123               ; OUT   (SIOBC),A
+C037-DB E0           124 ( 11)         IN      A,(SIOBC)               ; READ THE NEW INTERRUPT VECTOR
+C039-                125               ;LD     C,A             ; SAVE THE NEW VECTOR TO REGISTER B
+C039-                126               ; MVI   A,02H           ; SET SIO CHANNEL B REGISTER POINTER
+C039-                127               ;                       ; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+C039-                128               ; OUT   (SIOBC),A
+C039-                129               ; LD    A,B             ; RESTORE THE ORIGINAL INTERRUPT VECTOR
+C039-                130               ; OUT   (SIOBC),A               ; WRITE IT TO THE SIO
+C039-                131               ;EI
+C039-                132               ;LD     A,C             ; VALUE WRITTEN BY OUT (C),<0|0FFH> INSTRUCTION
+C039-FE 00           133 (  7)         CP      00H             ; IS IT ZERO?
+C03B-20 24           134 ( 7+)         JR  NZ,CMOS
+C03D-                135
+C03D-                136       ; NMOS DETECTED
+C03D-                137
+C03D-11 B3 C1        138 ( 10)         LD      DE,MSGNMOS
+C040-                139               ;MVI    C,WRSTR
+C040-CD 2B C2        140 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C043-                141
+C043-                142       ; CHECK MANUFACTURER FOR NMOS CPUS
+C043-                143
+C043-11 80 C1        144 ( 10)         LD      DE,MSGVENDOR
+C046-                145               ;MVI    C,WRSTR
+C046-CD 2B C2        146 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C049-                147
+C049-                148       ; CHECK IF THE MANUFACTURER IS MME
+C049-                149
+C049-21 23 C1        150 ( 10)         LD      HL,ISMME
+C04C-7E              151 (  7)         LD      A,(HL)
+C04D-FE 01           152 (  7)         CP      1
+C04F-20 08           153 ( 7+)         JR  NZ,NOTMME
+C051-                154
+C051-11 C1 C1        155 ( 10)         LD      DE,MSGMME
+C054-                156               ;MVI    C,WRSTR
+C054-CD 2B C2        157 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C057-18 47           158 ( 12)         JR      DONE
+C059-                159
+C059-                160       NOTMME:
+C059-11 D1 C1        161 ( 10)         LD      DE,MSGNOTMME
+C05C-                162               ;MVI    C,WRSTR
+C05C-CD 2B C2        163 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C05F-18 06           164 ( 12)         JR      MANUFACTURER    ; DONE !!! CHANGED FOR TOSHIBA
+C061-                165
+C061-                166       CMOS:
+C061-                167
+C061-11 BA C1        168 ( 10)         LD      DE,MSGCMOS
+C064-                169               ;MVI    C,WRSTR
+C064-CD 2B C2        170 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C067-                171
+C067-                172       ; CHECK MANUFACTURER FOR CMOS CPUS
+C067-                173       MANUFACTURER:
+C067-11 80 C1        174 ( 10)         LD      DE,MSGVENDOR
+C06A-                175               ;MVI    C,WRSTR
+C06A-CD 2B C2        176 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C06D-                177
+C06D-                178       ; TEST SCF (STC) WHEN PREVIOUS INSTRUCTION DOESN'T MODIFY FLAGS
+C06D-                179       ; POP AF (POP PSW) IS NOT TREATED AS FLAG MODIFYING INSTRUCTION
+C06D-                180
+C06D-11 00 28        181 ( 10)         LD      DE,2800H                ; SET 'A' REGISTER BITS 3 AND 5
+C070-CD DF C0        182 ( 17)         CALL    TESTSCF
+C073-FE 29           183 (  7)         CP      29H             ; FLAGS ON ZILOG CPU
+C075-28 13           184 ( 7+)         JR  Z,ZILOG
+C077-FE 09           185 (  7)         CP      09H             ; FLAGS ON TOSHIBA (AND SOME NEC?) CPUS
+C079-28 17           186 ( 7+)         JR  Z,TOSHIBA
+C07B-FE 01           187 (  7)         CP      01H             ; FLAGS ON NEC CPU
+C07D-28 1B           188 ( 7+)         JR  Z,NEC
+C07F-                189
+C07F-                190       ; UNRECOGNIZED CPU
+C07F-                191
+C07F-CD F0 C0        192 ( 17)         CALL    PRINTHEX        ; PRINT FLAGS
+C082-                193
+C082-11 20 C2        194 ( 10)         LD      DE,MSGUNKNOWN
+C085-                195               ;MVI    C,WRSTR
+C085-CD 2B C2        196 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C088-18 16           197 ( 12)         JR      DONE
+C08A-                198
+C08A-                199       ZILOG:
+C08A-11 F1 C1        200 ( 10)         LD      DE,MSGZILOG
+C08D-                201               ;MVI    C,WRSTR
+C08D-CD 2B C2        202 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C090-18 0E           203 ( 12)         JR      DONE
+C092-                204
+C092-                205       TOSHIBA:
+C092-11 03 C2        206 ( 10)         LD      DE,MSGTOSHIBA
+C095-                207               ;MVI    C,WRSTR
+C095-CD 2B C2        208 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C098-18 06           209 ( 12)         JR      DONE
+C09A-                210
+C09A-                211       NEC:
+C09A-11 1A C2        212 ( 10)         LD      DE,MSGNEC
+C09D-                213               ;MVI    C,WRSTR
+C09D-CD 2B C2        214 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C0A0-                215
+C0A0-                216       DONE:
+C0A0-CD A4 C0        217 ( 17)         CALL    TESTFLAGS       ; TEST HOW FLAGS SCF AFFECTS FLAGS
+C0A3-F7              218 ( 11)     RST     30H         ; MONITOR CA80
+C0A4-                219       ;       RET                     ; RETURN TO CP/M
+C0A4-                220
+C0A4-                221       ;-------------------------------------------------------------------------
+C0A4-                222       ; TESTFLAGS - TEST HOW SCF INSTRUCTION AFFECTS YF AND XF FLAGS
+C0A4-                223       ; NOTE: YF IS FLAGS.5 AND XF IS FLAGS.3
+C0A4-                224       ; INPUT:
+C0A4-                225       ;       NONE
+C0A4-                226       ; OUTPUT:
+C0A4-                227       ;       PRINTED ON CONSOLE
+C0A4-                228       ;-------------------------------------------------------------------------
+C0A4-                229       TESTFLAGS:
+C0A4-11 93 C1        230 ( 10)         LD      DE,MSGFLAGS
+C0A7-                231               ;MVI    C,WRSTR
+C0A7-CD 2B C2        232 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C0AA-16 00           233 (  7)         LD      D,00H
+C0AC-                234       LOOP1:
+C0AC-1E 00           235 (  7)         LD      E,00H
+C0AE-                236       LOOP2:
+C0AE-CD DF C0        237 ( 17)         CALL    TESTSCF
+C0B1-21 13 C1        238 ( 10)         LD      HL,FLAGCOUNT    ; POINT TO FLAG COUNTERS
+C0B4-0E 08           239 (  7)         LD      C,8             ; NUMBER OF BITS / FLAGS
+C0B6-                240       LOOP3:
+C0B6-0F              241 (  4)         RRCA                    ; LOWER BIT TO C
+C0B7-30 07           242 ( 7+)         JR  NC,LOOP4
+C0B9-                243
+C0B9-34              244 ( 11)         INC     (HL)            ; INCREMENT COUNTER IF FLAG IS SET
+C0BA-20 04           245 ( 7+)         JR  NZ,LOOP4            ; NO OVERFLOW
+C0BC-23              246 (  6)         INC     HL              ; MOVE TO THE HIGH BIT
+C0BD-34              247 ( 11)         INC     (HL)            ; INCREMENT HIGHER BIT
+C0BE-18 01           248 ( 12)         JR      LOOP5           ; ALREADY INCREMENTED HL BY 1, SKIP NEXT INX H
+C0C0-                249       LOOP4:
+C0C0-23              250 (  6)         INC     HL              ; MOVE TO THE NEXT COUNTER
+C0C1-                251       LOOP5:
+C0C1-23              252 (  6)         INC     HL
+C0C2-0D              253 (  4)         DEC     C               ; DECREMENT LOOP COUNTER
+C0C3-20 F1           254 ( 7+)         JR  NZ,LOOP3            ; LOOP COUNTER NOT ZERO - NEXT BIT
+C0C5-1C              255 (  4)         INC     E               ; INCREMENT DE
+C0C6-20 E6           256 ( 7+)         JR  NZ,LOOP2
+C0C8-14              257 (  4)         INC     D
+C0C9-20 E1           258 ( 7+)         JR  NZ,LOOP1
+C0CB-                259
+C0CB-                260       ; PRINT VALUES
+C0CB-0E 10           261 (  7)         LD      C,16            ; 16 DIGITS
+C0CD-21 22 C1        262 ( 10)         LD      HL,FLAGCOUNT+15 ; POINT AT THE MSB
+C0D0-                263       LOOP6:
+C0D0-7E              264 (  7)         LD      A,(HL)
+C0D1-CD F0 C0        265 ( 17)         CALL    PRINTHEX
+C0D4-2B              266 (  6)         DEC     HL
+C0D5-0D              267 (  4)         DEC     C
+C0D6-20 F8           268 ( 7+)         JR  NZ,LOOP6            ; PRINT NEXT DIGIT
+C0D8-11 28 C2        269 ( 10)         LD      DE,MSGCRLF
+C0DB-                270               ;MVI    C,WRSTR
+C0DB-CD 2B C2        271 ( 17)         CALL    WRSTR                       ; CALL  BDOS
+C0DE-C9              272 ( 10)         RET
+C0DF-                273
+C0DF-                274       ;-------------------------------------------------------------------------
+C0DF-                275       ; TESTSCF - TEST HOW SCF INSTRUCTION AFFECTS YF AND XF FLAGS
+C0DF-                276       ; NOTE: YF IS FLAGS.5 AND XF IS FLAGS.3
+C0DF-                277       ; INPUT:
+C0DF-                278       ;       D - ACCUMULATOR VALUE BEFORE SCF
+C0DF-                279       ;       E - FLAGS VALUE BEFORE SCF
+C0DF-                280       ; OUTPUT:
+C0DF-                281       ;       A.0 - XF FLAG VALUE AFTER SCF
+C0DF-                282       ;       A.1 - YF FLAG VALUE AFTER SCF
+C0DF-                283       ;-------------------------------------------------------------------------
+C0DF-                284       TESTSCF:
+C0DF-D5              285 ( 11)         PUSH    DE
+C0E0-                286               ;DI
+C0E0-3E FE           287 (  7)         LD      A,0FEH
+C0E2-A2              288 (  4)         AND     D
+C0E3-57              289 (  4)         LD      D,A
+C0E4-3E FE           290 (  7)         LD      A,0FEH
+C0E6-A3              291 (  4)         AND     E
+C0E7-5F              292 (  4)         LD      E,A
+C0E8-D5              293 ( 11)         PUSH    DE              ; PUSH DE TO THE STACK
+C0E9-F1              294 ( 10)         POP     AF              ; POP A AND FLAGS FROM THE STACK (DE)
+C0EA-37              295 (  4)         SCF                     ; SET CF FLAG, DEPENDING ON THE CPU TYPE THIS
+C0EB-                296                                       ; ALSO MIGHT CHANGE YF AND XF FLAGS
+C0EB-F5              297 ( 11)         PUSH    AF              ; STORE A AND F
+C0EC-D1              298 ( 10)         POP     DE              ; NEW FLAGS IN E
+C0ED-                299               ;EI
+C0ED-                300       ;       XRA     A               ; ZERO A
+C0ED-                301       ;       DB      0CBH,5BH        ; BIT 3,E - TEST IF XF IS SET
+C0ED-                302       ;       JNZ     TESTYF          ; NOT SET
+C0ED-                303       ;       DB      0CBH,0C7H       ; SET 0,A - SET BIT A.0
+C0ED-                304       ;TESTYF:
+C0ED-                305       ;       DB      0CBH,6BH        ; BIT 5,E - TEST IF YF IS SET
+C0ED-                306       ;       JNZ     TESTSCF1
+C0ED-                307       ;       DB      0CBH,0CFH       ; SET 1,A - SET BIT A.1
+C0ED-                308       ;TESTSCF1:
+C0ED-7B              309 (  4)         LD      A,E
+C0EE-D1              310 ( 10)         POP     DE
+C0EF-C9              311 ( 10)         RET
+C0F0-                312
+C0F0-                313       ;-------------------------------------------------------------------------
+C0F0-                314       ; PRINTHEX - PRINT BYTE IN HEXADECIMAL FORMAT
+C0F0-                315       ; INPUT:
+C0F0-                316       ;       A - BYTE TO PRINT
+C0F0-                317       ; OUTPUT:
+C0F0-                318       ;       NONE
+C0F0-                319       ;-------------------------------------------------------------------------
+C0F0-                320       PRINTHEX:
+C0F0-C5              321 ( 11)         PUSH    BC
+C0F1-D5              322 ( 11)         PUSH    DE
+C0F2-E5              323 ( 11)         PUSH    HL
+C0F3-F5              324 ( 11)         PUSH    AF              ; SAVE PRINTED VALUE ON THE STACK
+C0F4-0F              325 (  4)         RRCA                    ; ROTATE HIGHER 4 BITS TO LOWER 4 BITS
+C0F5-0F              326 (  4)         RRCA
+C0F6-0F              327 (  4)         RRCA
+C0F7-0F              328 (  4)         RRCA
+C0F8-CD 05 C1        329 ( 17)         CALL    PRINTDIGIT      ; PRINT HIGHER 4 BITS
+C0FB-F1              330 ( 10)         POP         AF          ; RESTORE PRINTED VALUE
+C0FC-F5              331 ( 11)         PUSH    AF              ; PUSH IT TO THE STACK AGAIN
+C0FD-CD 05 C1        332 ( 17)         CALL    PRINTDIGIT      ; PRINT LOWER 4 BITS
+C100-F1              333 ( 10)         POP     AF
+C101-E1              334 ( 10)         POP     HL
+C102-D1              335 ( 10)         POP     DE
+C103-C1              336 ( 10)         POP     BC
+C104-C9              337 ( 10)         RET
+C105-                338
+C105-                339       ;-------------------------------------------------------------------------
+C105-                340       ; PRINTDIGIT - PRINT DIGIT IN HEXADECIMAL FORMAT
+C105-                341       ; INPUT:
+C105-                342       ;       A - DIGIT TO PRINT, LOWER 4 BITS
+C105-                343       ; OUTPUT:
+C105-                344       ;       NONE
+C105-                345       ; TRASHES REGISTERS A, FLAGS, BC, DE, HL
+C105-                346       ;-------------------------------------------------------------------------
+C105-                347       PRINTDIGIT:
+C105-E6 0F           348 (  7)         AND     0FH             ; ISOLATE LOWER 4 BITS
+C107-C6 30           349 (  7)         ADD     '0'             ; CONVERT TO ASCII
+C109-FE 3A           350 (  7)         CP      ':'             ; GREATER THAN '9'?
+C10B-38 02           351 ( 7+)         JR  C,PRINTIT
+C10D-C6 07           352 (  7)         ADD     7       ; CONVERT A-F TO ASCII
+C10F-                353
+C10F-                354       PRINTIT:
+C10F-                355               ;LD     E,A
+C10F-                356               ;MVI    C,WRCHR
+C10F-CD 42 C2        357 ( 17)         CALL    putc                       ; CALL  BDOS
+C112-C9              358 ( 10)         RET
+C113-                359
+C113-00 00 00 00 
+     00 00 00 00 
+     00 00 00 00 
+     00 00 00 00     360       FLAGCOUNT:      .DW     0,0,0,0,0,0,0,0
+C123-00              361       ISMME:          .DB     0
+C124-5A 38 30 20 
+     50 72 6F 63 
+     65 73 73 6F 
+     72 20 54 79 
+     70 65 20 44 
+     65 74 65 63 
+     74 69 6F 6E 
+     20 28 43 29 
+     20 32 30 32 
+     34 20 53 65 
+     72 67 65 79 
+     20 4B 69 73 
+     65 6C 65 76 
+     0D 0A           362       MSGSIGNIN:      .DB     'Z80 Processor Type Detection (C) 2024 Sergey Kiselev',CR,LF
+C15A-50 72 6F 63 
+     65 73 73 6F 
+     72 20 66 61 
+     6D 69 6C 79 
+     3A 20 00        363                           .DB 'Processor family: ',EOS
+C16D-4C 6F 67 69 
+     63 20 66 61 
+     6D 69 6C 79 
+     3A 20 20 20 
+     20 20 00        364       MSGFAMILY:      .DB     'Logic family:     ',EOS
+C180-4D 61 6E 75 
+     66 61 63 74 
+     75 72 65 72 
+     3A 20 20 20 
+     20 20 00        365       MSGVENDOR:      .DB     'Manufacturer:     ',EOS
+C193-53 43 46 20 
+     66 6C 61 67 
+     73 20 74 65 
+     73 74 3A 20 
+     20 20 00        366       MSGFLAGS:       .DB     'SCF flags test:   ',EOS
+C1A6-55 38 38 30 
+     0D 0A 00        367       MSGU880:        .DB     'U880',CR,LF,EOS
+C1AD-5A 38 30 0D 
+     0A 00           368       MSGZ80:         .DB     'Z80',CR,LF,EOS
+C1B3-4E 4D 4F 53 
+     0D 0A 00        369       MSGNMOS:        .DB     'NMOS',CR,LF,EOS
+C1BA-43 4D 4F 53 
+     0D 0A 00        370       MSGCMOS:        .DB     'CMOS',CR,LF,EOS
+C1C1-4D 4D 45 20 
+     6F 72 20 54 
+     68 65 73 79 
+     73 0D 0A 00     371       MSGMME:         .DB     'MME or Thesys',CR,LF,EOS
+C1D1-5A 69 6C 6F 
+     67 20 6F 72 
+     20 6E 6F 6E 
+     2D 4D 4D 45 
+     2F 54 68 65 
+     73 79 73 20 
+     63 6C 6F 6E 
+     65 0D 0A 00     372       MSGNOTMME:      .DB     'Zilog or non-MME/Thesys clone',CR,LF,EOS
+C1F1-5A 69 6C 6F 
+     67 20 6F 72 
+     20 53 47 53 
+     2F 53 54 0D 
+     0A 00           373       MSGZILOG:       .DB     'Zilog or SGS/ST',CR,LF,EOS
+C203-54 6F 73 68 
+     69 62 61 20 
+     6F 72 20 4E 
+     45 43 0D 0A 
+     00              374       MSGTOSHIBA:     .DB     'Toshiba or NEC',CR,LF,EOS
+C214-56 4D 31 0D 
+     0A 00           375       MSGVM1:         .DB     'VM1',CR,LF,EOS
+C21A-4E 45 43 0D 
+     0A 00           376       MSGNEC:         .DB     'NEC',CR,LF,EOS
+C220-20 55 6E 6B 
+     6E 6F 77 6E     377       MSGUNKNOWN:     .DB     ' Unknown'
+C228-0D 0A 00        378       MSGCRLF:        .DB     CR,LF,EOS
+C22B-                379
+C22B-                380       ;       END
+C22B-                381       ;************************************************************************
+C22B-                382       ; ADDED BY ZEGAR.
+C22B-                383       ;************************************************************************
+C22B-                384       ;------------------------------------------------------------------------------
+C22B-                385       ;---
+C22B-                386       ;--- I/O subroutines
+C22B-                387       ;---
+C22B-                388       ;------------------------------------------------------------------------------
+C22B-                389       WRSTR:
+C22B-EB              390 (  4)                 EX DE,HL
+C22C-CD 34 C2        391 ( 17)                 CALL puts
+C22F-EB              392 (  4)                 EX DE,HL
+C230-CD 93 C2        393 ( 17)                 CALL FLUSH_TX
+C233-C9              394 ( 10)                 RET
+C234-                395       ;------------------------------------------------------------------------------
+C234-                396       ;---
+C234-                397       ;--- String subroutines
+C234-                398       ;---
+C234-                399       ;------------------------------------------------------------------------------
+C234-                400
+C234-                401       ;
+C234-                402       ; Send a string to the serial line, HL contains the pointer to the string:
+C234-                403       ;
+C234-F5              404 ( 11) puts            push    af
+C235-                405       ;                push    hl
+C235-7E              406 (  7) puts_loop       ld      a, (hl)
+C236-FE 00           407 (  7)                 cp      eos             ; End of string reached?
+C238-28 06           408 ( 7+)                 jr      z, puts_end     ; Yes
+C23A-CD 42 C2        409 ( 17)                 call    putc
+C23D-23              410 (  6)                 inc     hl              ; Increment character pointer
+C23E-18 F5           411 ( 12)                 jr      puts_loop       ; Transmit next character
+C240-                412       puts_end
+C240-                413       ;                pop     hl
+C240-F1              414 ( 10)                 pop     af
+C241-C9              415 ( 10)                 ret
+C242-                416       ;
+C242-                417       ; Send a single character to the serial line (A contains the character):
+C242-                418       ;
+C242-                419       putc
+C242-32 D3 C2        420 ( 13)                 LD      (SAVE_CHAR),A   ; instead of PUSH AF
+C245-CD 86 C2        421 ( 17)                 CALL    CHECK_TX        ; try to send char from buffer
+C248-CD AB C2        422 ( 17)                 CALL    write_buffer    ; put new char in buffer
+C24B-C9              423 ( 10)                 RET
+C24C-                424       ;
+C24C-                425       ; Wait for a single incoming character on the serial line
+C24C-                426       ; and read it, result is in A:
+C24C-                427       ;
+C24C-                428       getc
+C24C-CD 86 C2        429 ( 17)                 CALL    CHECK_TX        ; try to send char from buffer
+C24F-CD 72 C2        430 ( 17)                 CALL    READ_CHAR       ; is new char?
+C252-28 F8           431 ( 7+)                 JR      Z,GETC          ; repeat if not
+C254-C9              432 ( 10)                 RET                     ; in A new char
+C255-                433
+C255-                434       ;************************************************************************
+C255-                435       ;*              I8255 INIT                                              *
+C255-                436       ;*              CA80 USER PORT                                          *
+C255-                437       ;************************************************************************
+C255-                438       INIT_8255:
+C255-3E 8A           439 (  7)     LD A,8AH            ;PA OUT, PB, PC IN
+C257-D3 E3           440 ( 11)     OUT (CONTR_8255),A
+C259-C9              441 ( 10)     RET
+C25A-                442       ;************************************************************************
+C25A-                443       ;*              I8251A INIT                                             *
+C25A-                444       ;*      SEE RADIOELEKTRONIK 1/1994                                      *
+C25A-                445       ;************************************************************************
+C25A-                446       INIT_8251:
+C25A-AF              447 (  4)         XOR     A
+C25B-D3 E5           448 ( 11)         OUT     (CONTR_8251),A
+C25D-D3 E5           449 ( 11)         OUT     (CONTR_8251),A
+C25F-D3 E5           450 ( 11)         OUT     (CONTR_8251),A
+C261-3E 40           451 (  7)         LD      A,40H               ;RESET
+C263-D3 E5           452 ( 11)         OUT     (CONTR_8251),A
+C265-3E 4E           453 (  7)         LD      A,4EH               ;8 BIT, 1 STOP, X16
+C267-D3 E5           454 ( 11)         OUT     (CONTR_8251),A
+C269-DB E4           455 ( 11)         IN      A,(DATA_8251)   ;FLUSH
+C26B-DB E4           456 ( 11)         IN      A,(DATA_8251)
+C26D-3E 07           457 (  7)         LD      A,07H               ;RST=1, DTR=0, Rx Tx ON
+C26F-D3 E5           458 ( 11)         OUT     (CONTR_8251),A
+C271-C9              459 ( 10)         RET
+C272-                460
+C272-                461       ;************************************************************************
+C272-                462       ;*              I8251A READ CHAR                                        *
+C272-                463       ;************************************************************************
+C272-                464       READ_CHAR:
+C272-DB E5           465 ( 11)         IN      A,(CONTR_8251)
+C274-E6 02           466 (  7)         AND     02H             ; Rx ready?
+C276-C8              467 ( 5+)         RET     Z               ; return if not
+C277-DB E4           468 ( 11)         IN      A,(DATA_8251)   ; read new char
+C279-C9              469 ( 10)         RET
+C27A-                470
+C27A-                471       ;************************************************************************
+C27A-                472       ;*              I8251A SEND CHAR                                        *
+C27A-                473       ;************************************************************************
+C27A-                474       ; SEND_CHAR:
+C27A-                475       ;       LD      (SAVE_CHAR),A
+C27A-                476       ; SEND1:
+C27A-                477       ;       IN      A,(CONTR_8251)
+C27A-                478       ;       AND     01H
+C27A-                479       ;       RET     Z
+C27A-                480       ;       LD      A,(SAVE_CHAR)
+C27A-                481       ;       OUT     (DATA_8251),A
+C27A-                482       ;       RET
+C27A-                483
+C27A-                484       ; Z80 Ring Buffer with Empty/Full Check Example
+C27A-                485
+C27A-                486       ; Constants
+C27A-                487       ;BUFFER_SIZE  equ 16    ; Define the size of the buffer
+00FB-                488       BUFFER_START .equ 0FBH   ; Start address of the buffer in memory
+C27A-                489
+C27A-                490       ; Buffer initialization
+C27A-                491       init_buffer:
+C27A-AF              492 (  4)     XOR     A            ; Initialize the write and read pointers
+C27B-DD 21 D1 C2     493 ( 14)     LD      IX,write_ptr
+C27F-DD 77 00        494 ( 19)     LD      (IX+0),A      ; write_ptr
+C282-DD 77 01        495 ( 19)     LD      (IX+1),A      ; read_ptr
+C285-C9              496 ( 10)     ret
+C286-                497
+C286-                498       CHECK_TX:
+C286-DB E5           499 ( 11)     IN      A,(CONTR_8251)
+C288-E6 01           500 (  7)     AND     01H
+C28A-C8              501 ( 5+)     RET     Z               ; return if Tx not ready
+C28B-CD BE C2        502 ( 17)     CALL    read_buffer
+C28E-B7              503 (  4)     OR      A
+C28F-C8              504 ( 5+)     RET     Z               ; return if buffer is empty
+C290-D3 E4           505 ( 11)     OUT     (DATA_8251),A   ; send char
+C292-C9              506 ( 10)         RET
+C293-                507
+C293-                508       FLUSH_TX:
+C293-CD 9C C2        509 ( 17)     CALL    is_buffer_empty
+C296-C8              510 ( 5+)     RET     Z               ; return if buffer is empty
+C297-CD 86 C2        511 ( 17)     CALL    CHECK_TX        ; try to send char from buffer
+C29A-18 F7           512 ( 12)     JR      FLUSH_TX        ; repeat
+C29C-                513
+C29C-                514       ; Check if the buffer is empty
+C29C-                515       is_buffer_empty:
+C29C-DD 7E 00        516 ( 19)     LD      A,(IX+0)      ; write_ptr
+C29F-DD BE 01        517 ( 19)     CP      (IX+1)        ; read_ptr
+C2A2-C9              518 ( 10)     ret                   ; Zero flag is set if buffer is empty
+C2A3-                519
+C2A3-                520       ; Check if the buffer is full
+C2A3-                521       is_buffer_full:
+C2A3-DD 7E 00        522 ( 19)     LD      A,(IX+0)      ; Get the current write pointer
+C2A6-3C              523 (  4)     inc     a             ; Move to the next position
+C2A7-DD BE 01        524 ( 19)     CP      (IX+1)        ; read_ptr
+C2AA-C9              525 ( 10)     ret                   ; Zero flag is set if buffer is full
+C2AB-                526
+C2AB-                527       ; Write data to the buffer with full check
+C2AB-                528       write_buffer:
+C2AB-CD A3 C2        529 ( 17)     call    is_buffer_full ; Check if the buffer is full
+C2AE-C8              530 ( 5+)     RET     Z           ; buffer_full   ; If the Zero flag is set, the buffer is full
+C2AF-                531
+C2AF-                532           ; Write data (assuming SAVE_CHAR holds the data to write)
+C2AF-E5              533 ( 11)     PUSH    HL
+C2B0-26 FB           534 (  7)     ld      H, BUFFER_START
+C2B2-DD 6E 00        535 ( 19)     LD      L,(IX+0)        ; Get the current write pointer
+C2B5-3A D3 C2        536 ( 13)     LD      A,(SAVE_CHAR)   ; put new char in buffer
+C2B8-77              537 (  7)     ld      (hl), a         ; Write the data
+C2B9-E1              538 ( 10)     POP     HL
+C2BA-                539           ; Increment the write pointer
+C2BA-DD 34 00        540 ( 23)     INC     (IX+0)          ; Move to the next position
+C2BD-C9              541 ( 10)     ret
+C2BE-                542
+C2BE-                543       buffer_full:
+C2BE-                544           ; Handle the error case (e.g., return without writing)
+C2BE-                545           ;ret
+C2BE-                546
+C2BE-                547       ; Read data from the buffer with empty check
+C2BE-                548       read_buffer:
+C2BE-CD 9C C2        549 ( 17)     call    is_buffer_empty     ; Check if the buffer is empty
+C2C1-28 0C           550 ( 7+)     JR      Z, buffer_empty     ; If the Zero flag is set, the buffer is empty
+C2C3-                551
+C2C3-                552           ; Read data
+C2C3-E5              553 ( 11)     PUSH    HL
+C2C4-26 FB           554 (  7)     ld      H, BUFFER_START
+C2C6-DD 6E 01        555 ( 19)     LD      L,(IX+1)            ; Get the current read pointer
+C2C9-7E              556 (  7)     ld      A,(hl)              ; Read the data
+C2CA-E1              557 ( 10)     POP     HL
+C2CB-                558           ; Increment the read pointer
+C2CB-DD 34 01        559 ( 23)     INC     (IX+1)              ; Move to the next position
+C2CE-C9              560 ( 10)     ret
+C2CF-                561
+C2CF-                562       buffer_empty:
+C2CF-                563           ; Handle the empty case (e.g., return without reading)
+C2CF-AF              564 (  4)     XOR     A
+C2D0-C9              565 ( 10)     ret
+C2D1-                566
+C2D1-                567       ; Variables
+C2D1-00              568       write_ptr:   .db 0      ; Write pointer (offset from BUFFER_START)
+C2D2-00              569       read_ptr:    .db 0      ; Read pointer (offset from BUFFER_START)
+C2D3-                570       SAVE_CHAR:
+C2D3-FF              571           .DB 0FFH
+C2D4-                572
+C2D4-                573       ; FOR CAFL - MASS STORAGE CA80
+C2D4-                574          ;################################################
+C2D4-                575          ; po ostatnim bajcie naszego programu wpisujemy 2 x AAAA
+C2D4-                576          ;.db 0AAh, 0AAh, 0AAh, 0AAh ; po tym markerze /2x AAAA/ nazwa programu
+C2D4-                577          ;################################################
+C2D4-AA AA AA AA     578        .db 0AAh, 0AAh, 0AAh, 0AAh ; marker nazwy
+C2D8-5A 38 30 20 
+     54 45 53 54 
+     20 43 41 38 
+     30 20 54 26 
+     4E              579        .db "Z80 TEST CA80 T&N"    ; nazwa programu, max 16 znaków /dla LCD 4x 20 znakow w linii/
+C2E9-FF              580        .db 0FFH                   ; koniec tekstu
+C2EA-                581
+C2EA-                582       ; koniec zabawy. :-)
+C2EA-                583
+C2EA-                584                       .end
