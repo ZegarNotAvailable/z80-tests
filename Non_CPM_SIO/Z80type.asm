@@ -31,7 +31,7 @@ CHA_DATA     .EQ 84H    ;Data register on channel A                      *
 CHB_DATA     .EQ 85H    ;Data register on channel B                      *
 CHA_CNTR     .EQ 86H    ;Control registers on channel A                  *
 CHB_CNTR     .EQ 87H    ;Control registers on channel B                  *
-CONTR_8255   .EQ 0E3H    ;Control register 8255                           *
+CONTR_8255   .EQ 0E3H   ;Control register 8255                           *
 ;**************************************************************************
 
 
@@ -48,9 +48,9 @@ CR              .equ    $0d             ; Carriage return
 LF              .equ    $0a             ; Line feed
 ;
 ;
-    CALL    INIT_8255       ; PA INSTEAD SIOBC
+	CALL	INIT_8255       ; PA INSTEAD SIOBC
 	CALL	SIO_INIT	    ; UART INSTEAD BDOS
-    CALL	INIT_BUFFER     ; CIRCULAR BUFFER FOR UART
+	CALL	INIT_BUFFER     ; CIRCULAR BUFFER FOR UART
 
 	LD	DE,MSGSIGNIN
 	CALL	PRINTSTR
