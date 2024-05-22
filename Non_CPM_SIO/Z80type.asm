@@ -31,7 +31,6 @@ CHA_DATA     .EQ 84H    ;Data register on channel A                      *
 CHB_DATA     .EQ 85H    ;Data register on channel B                      *
 CHA_CNTR     .EQ 86H    ;Control registers on channel A                  *
 CHB_CNTR     .EQ 87H    ;Control registers on channel B                  *
-CONTR_8255   .EQ 0E3H   ;Control register 8255                           *
 ;**************************************************************************
 
 
@@ -40,7 +39,7 @@ WRCHR	.EQU	2
 WRSTR	.EQU	9
 ;CMDLINE	EQU	80H		; CP/M command line offset
 ; SIO CHANNEL B COMMAND PORT - RC2014/SC DEFAULT
-SIOBC	.EQU	0E0H
+SIOBC	.EQU	87H
 
 ;	ORG	0100H
 EOS             .equ    $00             ; End of string
@@ -48,10 +47,15 @@ CR              .equ    $0d             ; Carriage return
 LF              .equ    $0a             ; Line feed
 ;
 ;
-	CALL	INIT_8255       ; PA INSTEAD SIOBC
-	CALL	SIO_INIT	    ; UART INSTEAD BDOS
-	CALL	INIT_BUFFER     ; CIRCULAR BUFFER FOR UART
-
+    CALL	SIO_INIT	    ; UART INSTEAD BDOS
+    CALL	INIT_BUFFER     ; CIRCULAR BUFFER FOR UART
+	XOR	A
+	LD	B,MSGSIGNIN-DEBUG
+	LD	HL,DEBUG
+.LOOP:
+	LD	(HL),A				; INIT DATA AREA
+	INC HL
+	DJNZ	.LOOP
 	LD	DE,MSGSIGNIN
 	CALL	PRINTSTR
 	
@@ -268,26 +272,29 @@ TESTCMOS:
 ;      0 - NMOS CPU
 ;      0FFH - CMOS CPU
 ;	DI
-	; LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
-	; 					; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
-	; OUT	(SIOBC),A
-	; IN	A,(SIOBC)		; READ THE CURRENT INTERRUPT VECTOR
-	; LD	B,A				; SAVE THE ORIGINAL VECTOR TO REGISTER B
+	LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
+						; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
+	IN	A,(SIOBC)		; READ THE CURRENT INTERRUPT VECTOR
+	LD	B,A				; SAVE THE ORIGINAL VECTOR TO REGISTER B
 	LD	C,SIOBC
+	LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
+						; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
 	.DB	0EDH, 071H		; UNDOCUMENTED OUT (C),<0|0FFH> INSTRUCTION
 						; WRITE 0 OR FF TO THE SIO INTERRUPT VECTOR
-	; LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
-	; 					; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
-	; OUT	(SIOBC),A
+	LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
+						; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
 	IN	A,(SIOBC)		; READ THE NEW INTERRUPT VECTOR
-	; LD	C,A				; SAVE THE NEW VECTOR TO REGISTER B
-	; LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
-	; 					; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
-	; OUT	(SIOBC),A
-	; LD	A,B				; RESTORE THE ORIGINAL INTERRUPT VECTOR
-	; OUT	(SIOBC),A		; WRITE IT TO THE SIO
+	LD	C,A				; SAVE THE NEW VECTOR TO REGISTER B
+	LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
+						; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
+	LD	A,B				; RESTORE THE ORIGINAL INTERRUPT VECTOR
+	OUT	(SIOBC),A		; WRITE IT TO THE SIO
 ;	EI
-	; LD	A,C				; VALUE WRITTEN BY OUT (C),<0|0FFH> INSTRUCTION
+	LD	A,C				; VALUE WRITTEN BY OUT (C),<0|0FFH> INSTRUCTION
 	RET
 
 ;-------------------------------------------------------------------------
@@ -303,18 +310,21 @@ TESTU880:
 	LD	BC,00100H+SIOBC	; USE SIO CHANNEL B COMMAND PORT FOR TESTS
 
 ;	DI
-	; LD	A,02H		; SET SIO CHANNEL B REGISTER POINTER
-	; 				; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
-	; OUT	(SIOBC),A
-	; IN	A,(SIOBC)	; READ THE CURRENT INTERRUPT VECTOR
+	LD	A,02H		; SET SIO CHANNEL B REGISTER POINTER
+					; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
+	IN	A,(SIOBC)	; READ THE CURRENT INTERRUPT VECTOR
+	LD	A,02H			; SET SIO CHANNEL B REGISTER POINTER
+						; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A	
 	SCF
 	.DB	0EDH,0A3H	; Z80 OUTI INSTRUCTION
-	; PUSH	AF		; SAVE THE ORIGINAL VECTOR ON THE STACK
-	; LD	A,02H		; SET SIO CHANNEL B REGISTER POINTER
-	; 				; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
-	; OUT	(SIOBC),A
-	; POP	AF			; RESTORE THE ORIGINAL INTERRUPT VECTOR
-	; OUT	(SIOBC),A	; WRITE IT TO THE SIO
+	PUSH	AF		; SAVE THE ORIGINAL VECTOR ON THE STACK
+	LD	A,02H		; SET SIO CHANNEL B REGISTER POINTER
+					; TO REGISTER 2 - INTERRUPT VECTOR REGISTER
+	OUT	(SIOBC),A
+	POP	AF			; RESTORE THE ORIGINAL INTERRUPT VECTOR
+	OUT	(SIOBC),A	; WRITE IT TO THE SIO
 ;	EI
 	LD	A,1			; Assume it is a U880, set A = 1
 	JR	C,TESTU880DONE	; It is a U880, exit
@@ -735,16 +745,7 @@ GETC:
                 CALL    READ_CHAR       ; is new char?
                 RET     C               ; in A new char
                 JR      GETC            ; repeat if not
-
-;************************************************************************
-;*              I8255 INIT                                              *
-;*              CA80 USER PORT                                          *
-;************************************************************************
-INIT_8255:
-    LD A,8AH            ;PA OUT, PB, PC IN
-    OUT (CONTR_8255),A
-    RET
-;************************************************************************                
+                
 ;*************************************************************************
 ;*              Z80 SIO INIT                                             *
 ;*************************************************************************
